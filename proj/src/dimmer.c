@@ -2,29 +2,10 @@
 #include "tm4c123gh6pm.h"
 #include "OS.h"
 
-#define DIMMER_PERIOD (((1.0f/120.0f)/12.5f)*1000000000.0f)
+#define DIMMER_PERIOD (((1.0f/120.0f)/800.0f)*1000000000.0f)
 
-#define PB6 (*((volatile unsigned long *)0x40005100))
-
-volatile unsigned char state;
+unsigned char state;
 float min, max, power;
-
-sema_t dimmer_trigger;
-
-void delay(int count) {
-  while(count--);
-}
-
-void task(void) {
-  while(1) {
-    OS_bWait(&dimmer_trigger);
-    PB6 &= 0x00;
-    delay(DIMMER_PERIOD - 10000);
-    PB6 |= 0x40;
-    // delay((power) * DIMMER_PERIOD - 2);
-    PB6 &= 0x00;
-  }
-}
 
 void Dimmer_Init(float min_val, float max_val) {
   // Initialize variables
@@ -38,39 +19,26 @@ void Dimmer_Init(float min_val, float max_val) {
   power = min;
 
   // Initialize PWM Generator PWM0
-  // SYSCTL_RCGCPWM_R |= 0x01;             // 1) activate PWM0
-  // SYSCTL_RCGCGPIO_R |= 0x02;            // 2) activate port B
-  // while((SYSCTL_PRGPIO_R&0x02) == 0);
-  // GPIO_PORTB_AFSEL_R |= 0x40;           // enable alt funct on PB6
-  // GPIO_PORTB_PCTL_R &= ~0x0F000000;     // configure PB6 as PWM0
-  // GPIO_PORTB_PCTL_R |= 0x04000000;
-  // GPIO_PORTB_AMSEL_R &= ~0x40;          // disable analog functionality on PB6
-  // GPIO_PORTB_DIR_R |= 0x40;             // PB6 output
-  // GPIO_PORTB_DEN_R |= 0x40;             // enable digital I/O on PB6
-  // SYSCTL_RCC_R = 0x001A0000 |           // 3) use PWM divider
-  //     (SYSCTL_RCC_R & (~0x000E0000));   //    configure for /64 divider
-  // PWM0_0_CTL_R = 0;                     // 4) re-loading down-counting mode
-  // PWM0_0_GENA_R = 0xC8;                 // low on LOAD, high on CMPA down
-  // // PB6 goes low on LOAD
-  // // PB6 goes high on CMPA down
-  // PWM0_0_LOAD_R = DIMMER_PERIOD - 1;           // 5) cycles needed to count down to 0
-  // PWM0_0_CMPA_R = (unsigned long)(power * DIMMER_PERIOD) - 1;             // 6) count value when output rises
-  // PWM0_0_CTL_R |= 0x00000001;           // 7) start PWM0
-  // PWM0_ENABLE_R &= ~0x00000002;         // disable
+  SYSCTL_RCGCPWM_R |= 0x01;             // 1) activate PWM0
+  SYSCTL_RCGCGPIO_R |= 0x02;            // 2) activate port B
+  while((SYSCTL_PRGPIO_R&0x02) == 0);
+  GPIO_PORTB_AFSEL_R |= 0x40;           // enable alt funct on PB6
+  GPIO_PORTB_PCTL_R &= ~0x0F000000;     // configure PB6 as PWM0
+  GPIO_PORTB_PCTL_R |= 0x04000000;
+  GPIO_PORTB_AMSEL_R &= ~0x40;          // disable analog functionality on PB6
+  GPIO_PORTB_DIR_R |= 0x40;             // PB6 output
+  GPIO_PORTB_DEN_R |= 0x40;             // enable digital I/O on PB6
+  SYSCTL_RCC_R = 0x001A0000 |           // 3) use PWM divider
+      (SYSCTL_RCC_R & (~0x000E0000));   //    configure for /64 divider
+  PWM0_0_CTL_R = 0;                     // 4) re-loading down-counting mode
+  PWM0_0_GENA_R = 0xC8;                 // low on LOAD, high on CMPA down
+  // PB6 goes low on LOAD
+  // PB6 goes high on CMPA down
+  PWM0_0_LOAD_R = DIMMER_PERIOD - 1;           // 5) cycles needed to count down to 0
+  PWM0_0_CMPA_R = (unsigned long)(power * DIMMER_PERIOD) - 1;             // 6) count value when output rises
+  PWM0_0_CTL_R |= 0x00000001;           // 7) start PWM0
+  PWM0_ENABLE_R &= ~0x00000002;         // disable
 
-
-
-  // Configure PB6 as output with interrupt
-  // Disable analog functionality on PB6
-  GPIO_PORTB_AMSEL_R &= 0x40;
-  // Configure as PB6 GPIO
-  GPIO_PORTB_PCTL_R &= ~0x0F000000;
-  // Configure PB6 as output
-  GPIO_PORTB_DIR_R |= 0x40;
-  // Enable digital I/O on PB6
-  GPIO_PORTB_DEN_R |= 0x40;
-  // Disable alternate functions on PB7
-  GPIO_PORTB_AFSEL_R &= ~0x40;
 
   // Configure PB7 as input with interrupt
   // Disable analog functionality on PB7
@@ -88,24 +56,20 @@ void Dimmer_Init(float min_val, float max_val) {
   // Interrupt priority 3
   NVIC_PRI0_R = (NVIC_PRI0_R & 0xFFFF00FF) | (0 << 13);
   NVIC_EN0_R |= 1 << 1;
-
-
-  OS_InitSemaphore("dim_s", &dimmer_trigger, 0);
-  OS_AddThread("dim_t", &task, 256, 1);
 }
 
 void GPIOPortB_Handler(void) {
   // Check for PB7
   if ((GPIO_PORTB_RIS_R & 0x80) == 0x80) {
-    if (state == 1) {
-      OS_bSignal(&dimmer_trigger);
-    }
     GPIO_PORTB_ICR_R |= 0x80;
+    GPIO_PORTB_IM_R &= ~0x80;
+    Dimmer_Sync();
+    GPIO_PORTB_IM_R |= 0x80;
   }
 }
 
 void Dimmer_Sync(void) {
-  // PWM0_SYNC_R |= 0x01;
+  PWM0_SYNC_R |= 0x01;
 }
 
 unsigned char Dimmer_GetState(void) {
@@ -114,12 +78,12 @@ unsigned char Dimmer_GetState(void) {
 
 void Dimmer_Enable(void) {
   state = 1;
-  // PWM0_ENABLE_R |= 0x00000001;
+  PWM0_ENABLE_R |= 0x00000001;
 }
 
 void Dimmer_Disable() {
   state = 0;
-  // PWM0_ENABLE_R &= ~0x00000001;
+  PWM0_ENABLE_R &= ~0x00000001;
 }
 
 unsigned char Dimmer_ToggleState(void) {
@@ -139,7 +103,7 @@ void Dimmer_SetPower(float power_val) {
   if (power_val >= min && power_val <= max) {
     Dimmer_Disable();
     power = power_val;
-    // PWM0_0_CMPA_R = (unsigned long)(power * DIMMER_PERIOD) - 1;
+    PWM0_0_CMPA_R = (unsigned long)(power * DIMMER_PERIOD) - 1;
     if (last_state) {
       Dimmer_Enable();
     }
