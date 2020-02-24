@@ -1,0 +1,17 @@
+*.d
+*.o
+*.pdf
+.DS_Store
+proj/build
+proj/lib/INTERPRETER
+proj/lib/JOYSTICK
+proj/lib/PING
+proj/lib/printf
+proj/lib/ROSSERIAL
+proj/lib/SPEED
+proj/lib/WIFI
+*.d.icloud
+common.mk
+init.gdb
+Makefile
+lib
