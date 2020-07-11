@@ -3,8 +3,6 @@
 
 void Dimmer_Init(float, float);
 
-void Dimmer_Sync(void);
-
 unsigned char Dimmer_GetState(void);
 void Dimmer_Enable(void);
 void Dimmer_Disable(void);
