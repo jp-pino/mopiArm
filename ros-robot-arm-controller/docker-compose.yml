@@ -1,0 +1,121 @@
+version: '3'
+
+
+networks:
+  ros:
+
+services: 
+  core:
+    image: ros:melodic-ros-core
+    container_name: core
+    restart: unless-stopped
+    networks: 
+      - ros
+    command: roscore
+
+  rosbridge:
+    build:
+      context: .
+      dockerfile: rosbridge.dockerfile
+    container_name: rosbridge
+    restart: unless-stopped
+    networks: 
+      - ros
+    ports: 
+      - "9090:9090"
+    environment: 
+      - ROS_MASTER_URI=http://core:11311
+    depends_on: 
+      - core
+    command: bash -c "source /opt/ros/melodic/setup.bash && roslaunch rosbridge_server rosbridge_websocket.launch"
+
+  webviz:
+    image: cruise/webviz:latest
+    container_name: webviz
+    restart: unless-stopped
+    ports: 
+      - "8080:8080"
+    networks: 
+      - ros
+    depends_on: 
+      - core
+      - rosbridge
+
+  rosserial:
+    build:
+      context: .
+      dockerfile: rosserial.dockerfile
+    container_name: rosserial
+    restart: unless-stopped
+    devices:
+      - /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A601WKDG-if00-port0
+    networks: 
+      - ros
+    environment: 
+      - ROS_MASTER_URI=http://core:11311
+    depends_on: 
+      - core
+    command: rosrun rosserial_python serial_node.py _port:=/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A601WKDG-if00-port0 _baud:=115200
+
+  kinematics:
+    build:
+      context: .
+      dockerfile: kinematics.dockerfile
+    container_name: kinematics
+    restart: unless-stopped
+    volumes: 
+      - ./kinematics:/home/catkin_ws/src/kinematics
+    networks: 
+      - ros
+    environment: 
+      - ROS_MASTER_URI=http://core:11311
+    depends_on: 
+      - core
+      - rosserial
+      - webviz
+    command: bash -c "catkin_make && source devel/setup.bash && rosrun inverse_kinematics kinematics.py"
+
+  demo:
+    build:
+      context: .
+      dockerfile: kinematics.dockerfile
+    container_name: demo
+    restart: unless-stopped
+    volumes: 
+      - ./kinematics:/home/catkin_ws/src/kinematics
+    networks: 
+      - ros
+    environment: 
+      - ROS_MASTER_URI=http://core:11311
+    depends_on: 
+      - kinematics
+    command: bash -c "catkin_make && source devel/setup.bash && rosrun inverse_kinematics sequence.py"
+  
+  logs:
+    build:
+      context: .
+      dockerfile: kinematics.dockerfile
+    container_name: logs
+    restart: unless-stopped
+    networks: 
+      - ros
+    environment: 
+      - ROS_MASTER_URI=http://core:11311
+    depends_on: 
+      - core
+    command: rostopic echo /rosout
+
+  test:
+    build:
+      context: .
+      dockerfile: kinematics.dockerfile
+    container_name: test
+    restart: unless-stopped
+    networks: 
+      - ros
+    environment: 
+      - ROS_MASTER_URI=http://core:11311
+    depends_on: 
+      - core
+      - rosserial
+      - kinematics

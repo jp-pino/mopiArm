@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# Source docker-machine env
+eval $(docker-machine env local)
+
+# Forward port 8080 webviz
+./scripts/pf -s 8080 -e local
+
+# Forward port 8080 homebridge
+./scripts/pf -s 9090 -e local
+
+# Execute kinematics
+docker-compose down
